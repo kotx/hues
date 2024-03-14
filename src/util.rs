@@ -5,7 +5,7 @@ use ggez::{
 };
 
 pub fn draw_background(
-	ctx: &mut Context,
+	ctx: &Context,
 	canvas: &mut Canvas,
 	screen_width: f32,
 	screen_height: f32,

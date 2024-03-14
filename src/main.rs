@@ -30,7 +30,7 @@ fn main() {
 				.resizable(true)
 				.resize_on_scale_factor_change(true),
 		);
-		
+
 	let (mut ctx, event_loop) = cb.build().expect("failed to create ggez context");
 	let mut state = GlobalState::new(&mut ctx).expect("failed to create global state");
 
@@ -82,10 +82,8 @@ impl GlobalState {
 
 	fn spawn_data_loader(resources_dir: PathBuf) -> RespackLoader {
 		let (sender, recv) = channel();
-		
-		let path = resources_dir
-			.join("respacks")
-			.join("HuesMixA.zip"); // TODO: load from config
+
+		let path = resources_dir.join("respacks").join("HuesMixA.zip"); // TODO: load from config
 		let path_cloned = path.clone();
 
 		let thread = thread::spawn(move || -> RespackResult<Respack> {
