@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use quick_xml::DeError;
 use serde::{Deserialize, Serialize};
@@ -9,22 +9,24 @@ use zip::result::ZipError;
 use zip::ZipArchive;
 
 #[derive(Debug)]
-pub struct Respack<'p> {
-	path: &'p Path,
+pub struct Respack {
+	path: PathBuf,
 	data: RespackData,
 }
 
+pub type RespackResult<T = ()> = Result<T, RespackError>;
+
 #[derive(Debug)]
 pub enum RespackError {
-	IO(std::io::Error),
+	Io(std::io::Error),
 	Zip(ZipError),
-	XML(DeError),
+	Xml(DeError),
 	MissingMetadata(String),
 }
 
 impl From<std::io::Error> for RespackError {
 	fn from(err: std::io::Error) -> Self {
-		RespackError::IO(err)
+		RespackError::Io(err)
 	}
 }
 
@@ -36,12 +38,12 @@ impl From<ZipError> for RespackError {
 
 impl From<DeError> for RespackError {
 	fn from(err: DeError) -> Self {
-		RespackError::XML(err)
+		RespackError::Xml(err)
 	}
 }
 
-impl Respack<'_> {
-	pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, RespackError> {
+impl Respack {
+	pub fn load_from_file<P: AsRef<Path>>(path: P) -> RespackResult<Self> {
 		let file = File::open(&path)?;
 		let mut arc = ZipArchive::new(file)?;
 
@@ -75,7 +77,7 @@ impl Respack<'_> {
 				info: info.unwrap(),
 			};
 			Ok(Self {
-				path: path.as_ref(),
+				path: path.as_ref().to_path_buf(),
 				data,
 			})
 		}

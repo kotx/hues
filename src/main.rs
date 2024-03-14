@@ -1,11 +1,15 @@
+#![feature(extract_if)]
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
+#![allow(unused)] // TODO: remove when done prototyping
 
 mod respack;
 mod util;
 
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver};
-use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{env, path, thread};
 
@@ -14,28 +18,21 @@ use ggez::conf::{WindowMode, WindowSetup};
 use ggez::event::{self, EventHandler};
 use ggez::graphics::{Canvas, Color, DrawMode, DrawParam, FontData, Mesh, Rect};
 use ggez::{Context, ContextBuilder, GameError, GameResult};
+use respack::{RespackError, RespackResult};
 use util::{draw_background, draw_centered_text};
 
 fn main() {
-	let mut cb = ContextBuilder::new("hues", "Kot")
-		.window_setup(WindowSetup::default().title("0x40 Hues"))
+	let mut cb = ContextBuilder::new("0x40-hues", "Kot")
+		.window_setup(WindowSetup::default().title("0x40 Hues of Rust"))
 		.window_mode(
 			WindowMode::default()
 				.dimensions(1280., 720.)
 				.resizable(true)
 				.resize_on_scale_factor_change(true),
 		);
-
-	if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-		let mut path = path::PathBuf::from(manifest_dir);
-		path.push("resources");
-		println!("Adding path {path:?}");
-		cb = cb.add_resource_path(path);
-	}
-
+		
 	let (mut ctx, event_loop) = cb.build().expect("failed to create ggez context");
 	let mut state = GlobalState::new(&mut ctx).expect("failed to create global state");
-	state.load_data();
 
 	event::run(ctx, event_loop, state);
 }
@@ -53,50 +50,97 @@ impl Default for Screen {
 }
 
 #[derive(Debug)]
-struct GlobalState<'p> {
-	screen: Screen,
-	load_progress: Option<Receiver<f32>>,
-	respacks: Vec<Respack<'p>>,
+struct RespackLoader {
+	thread: JoinHandle<RespackResult<Respack>>,
+	path: path::PathBuf,
+	pub progress: Receiver<f32>,
 }
 
-impl GlobalState<'_> {
+#[derive(Debug)]
+struct GlobalState {
+	screen: Screen,
+	loading_respacks: Vec<RespackLoader>,
+	respacks: Vec<Respack>,
+	resources_dir: PathBuf,
+}
+
+impl GlobalState {
 	pub fn new(ctx: &mut Context) -> Result<Self, GameError> {
 		ctx.gfx
 			.add_font("Pet Me 64", FontData::from_path(&ctx.fs, "/PetMe64.ttf")?);
 
+		let resources_dir = ctx.fs.resources_dir().to_path_buf();
+		let loading_respacks = vec![Self::spawn_data_loader(resources_dir.clone())]; // todo: load from config
+
 		Ok(Self {
 			screen: Screen::default(),
-			load_progress: None,
+			loading_respacks,
 			respacks: Vec::new(),
+			resources_dir,
 		})
 	}
 
-	fn load_data(&mut self) {
+	fn spawn_data_loader(resources_dir: PathBuf) -> RespackLoader {
 		let (sender, recv) = channel();
+		
+		let path = resources_dir
+			.join("respacks")
+			.join("HuesMixA.zip"); // TODO: load from config
+		let path_cloned = path.clone();
 
-		thread::spawn(move || {
+		let thread = thread::spawn(move || -> RespackResult<Respack> {
 			let mut progress = 0.0;
 
-			let respack = Respack::load_from_file("./resources/HuesMixA.zip");
+			let respack = Respack::load_from_file(&path_cloned)?;
+			dbg!(&respack);
 
 			loop {
 				progress += 0.01;
 				sender.send(progress).unwrap();
 				thread::sleep(Duration::from_millis(10));
+
+				if progress >= 1.0 {
+					break;
+				}
 			}
+
+			Ok(respack)
 		});
 
-		self.load_progress = Some(recv);
+		RespackLoader {
+			thread,
+			path,
+			progress: recv,
+		}
 	}
 }
 
-impl EventHandler for GlobalState<'_> {
+impl EventHandler for GlobalState {
 	fn update(&mut self, _ctx: &mut Context) -> GameResult {
 		if let Screen::Loading { ref mut progress } = self.screen {
-			if let Some(load_progress) = &self.load_progress {
-				if let Ok(new_progress) = load_progress.try_recv() {
-					*progress = new_progress;
-				}
+			self.loading_respacks
+				.extract_if(|loader| loader.thread.is_finished())
+				.for_each(|loader| {
+					let join_result = loader.thread.join().unwrap();
+					let loader_path = loader.path;
+
+					match join_result {
+						Ok(respack) => {
+							println!("Loaded respack: {respack:?}");
+							self.respacks.push(respack);
+						}
+						Err(err) => {
+							println!("Error loading respack {loader_path:?}: {err:?}");
+							self.screen = Screen::Error {
+								message: format!("{err:?}"),
+							};
+						}
+						_ => (),
+					}
+				});
+
+			for loading in &self.loading_respacks {
+				let progress = loading.progress.try_recv().unwrap_or(0.0);
 			}
 		}
 
