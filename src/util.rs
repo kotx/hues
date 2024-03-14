@@ -4,7 +4,7 @@ use ggez::{
 	Context, GameResult,
 };
 
-pub(crate) fn draw_background(
+pub fn draw_background(
 	ctx: &mut Context,
 	canvas: &mut Canvas,
 	screen_width: f32,
@@ -24,7 +24,7 @@ pub(crate) fn draw_background(
 	Ok(())
 }
 
-pub(crate) fn draw_centered_text(
+pub fn draw_centered_text(
 	canvas: &mut Canvas,
 	text: &str,
 	screen_width: f32,
@@ -33,7 +33,7 @@ pub(crate) fn draw_centered_text(
 ) {
 	canvas.draw(
 		Text::new(text)
-			.set_font("PetMe 64")
+			.set_font("Pet Me 64")
 			.set_scale(48.)
 			.set_layout(TextLayout::center())
 			.set_bounds(Vec2::new(screen_width, screen_height))

@@ -8,3 +8,6 @@ opt-level = 1
 
 [dependencies]
 ggez = "0.9.3"
+quick-xml = { version = "0.31.0", features = ["serialize"] }
+zip = "0.6.6"
+serde = { version = "1.0.197", features = ["derive"] }

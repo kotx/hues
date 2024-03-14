@@ -1,9 +1,15 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
+
+mod respack;
 mod util;
 
-use std::{env, path};
+use std::sync::mpsc::{channel, Receiver};
+use std::sync::Arc;
+use std::time::Duration;
+use std::{env, path, thread};
 
+use crate::respack::Respack;
 use ggez::conf::{WindowMode, WindowSetup};
 use ggez::event::{self, EventHandler};
 use ggez::graphics::{Canvas, Color, DrawMode, DrawParam, FontData, Mesh, Rect};
@@ -15,7 +21,7 @@ fn main() {
 		.window_setup(WindowSetup::default().title("0x40 Hues"))
 		.window_mode(
 			WindowMode::default()
-				.dimensions(1920., 1080.)
+				.dimensions(1280., 720.)
 				.resizable(true)
 				.resize_on_scale_factor_change(true),
 		);
@@ -28,7 +34,9 @@ fn main() {
 	}
 
 	let (mut ctx, event_loop) = cb.build().expect("failed to create ggez context");
-	let state = GlobalState::new(&mut ctx).expect("failed to create global state");
+	let mut state = GlobalState::new(&mut ctx).expect("failed to create global state");
+	state.load_data();
+
 	event::run(ctx, event_loop, state);
 }
 
@@ -45,26 +53,50 @@ impl Default for Screen {
 }
 
 #[derive(Debug)]
-struct GlobalState {
+struct GlobalState<'p> {
 	screen: Screen,
+	load_progress: Option<Receiver<f32>>,
+	respacks: Vec<Respack<'p>>,
 }
 
-impl GlobalState {
-	pub fn new(ctx: &mut Context) -> Result<Self, ggez::GameError> {
+impl GlobalState<'_> {
+	pub fn new(ctx: &mut Context) -> Result<Self, GameError> {
 		ctx.gfx
-			.add_font("PetMe 64", FontData::from_path(&ctx.fs, "/PetMe64.ttf")?);
+			.add_font("Pet Me 64", FontData::from_path(&ctx.fs, "/PetMe64.ttf")?);
 
 		Ok(Self {
 			screen: Screen::default(),
+			load_progress: None,
+			respacks: Vec::new(),
 		})
+	}
+
+	fn load_data(&mut self) {
+		let (sender, recv) = channel();
+
+		thread::spawn(move || {
+			let mut progress = 0.0;
+
+			let respack = Respack::load_from_file("./resources/HuesMixA.zip");
+
+			loop {
+				progress += 0.01;
+				sender.send(progress).unwrap();
+				thread::sleep(Duration::from_millis(10));
+			}
+		});
+
+		self.load_progress = Some(recv);
 	}
 }
 
-impl EventHandler for GlobalState {
+impl EventHandler for GlobalState<'_> {
 	fn update(&mut self, _ctx: &mut Context) -> GameResult {
 		if let Screen::Loading { ref mut progress } = self.screen {
-			if *progress < 1. {
-				*progress = (*progress + 0.02).clamp(0., 1.);
+			if let Some(load_progress) = &self.load_progress {
+				if let Ok(new_progress) = load_progress.try_recv() {
+					*progress = new_progress;
+				}
 			}
 		}
 
