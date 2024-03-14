@@ -1,0 +1,10 @@
+[package]
+name = "hues"
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev.package.ggez]
+opt-level = 1
+
+[dependencies]
+ggez = "0.9.3"
