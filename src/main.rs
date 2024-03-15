@@ -52,7 +52,7 @@ impl Default for Screen {
 #[derive(Debug)]
 struct RespackLoader {
 	thread: JoinHandle<RespackResult<Respack>>,
-	path: path::PathBuf,
+	path: PathBuf,
 	pub progress: Receiver<f32>,
 }
 
@@ -64,18 +64,17 @@ impl RespackLoader {
 
 		let thread = thread::spawn(move || -> RespackResult<Respack> {
 			let mut progress = 0.0;
-
 			let respack = Respack::load_from_file(path_clone)?;
 
-			// loop {
-			// 	progress += 0.04;
-			// 	sender.send(progress).unwrap();
-			// 	thread::sleep(Duration::from_millis(10));
+			loop {
+				progress += 0.04;
+				sender.send(progress).unwrap();
+				thread::sleep(Duration::from_millis(10));
 
-			// 	if progress >= 1.0 {
-			// 		break;
-			// 	}
-			// }
+				if progress >= 1.0 {
+					break;
+				}
+			}
 
 			Ok(respack)
 		});
@@ -97,15 +96,21 @@ struct GlobalState {
 
 impl GlobalState {
 	pub fn new(ctx: &mut Context) -> Result<Self, GameError> {
+		dbg!(ctx.fs.resources_dir());
 		ctx.gfx
 			.add_font("Pet Me 64", FontData::from_path(&ctx.fs, "/PetMe64.ttf")?);
 
-		let loading_respacks = ctx
-			.fs
-			.read_dir("/respacks")?
-			.filter(|p| p.is_file())
-			.map(RespackLoader::new)
-			.collect();
+		let loading_respacks: Vec<RespackLoader> =
+			std::fs::read_dir(ctx.fs.resources_dir().join("respacks"))?
+				.filter_map(|p| Some(p.ok()?.path()).filter(|p| p.is_file()))
+				.map(RespackLoader::new)
+				.collect();
+
+		if loading_respacks.is_empty() {
+			return Err(GameError::CustomError(
+				"Missing respacks in resource directory!".to_string(),
+			));
+		}
 
 		Ok(Self {
 			screen: Screen::default(),

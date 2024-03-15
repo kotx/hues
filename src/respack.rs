@@ -55,8 +55,18 @@ impl Respack {
 
 			if let Some(name) = name {
 				match name.file_name() {
-					Some(name) if name == OsStr::new("info.xml") => {
-						info = Some(quick_xml::de::from_reader(BufReader::new(entry))?);
+					Some(name) if name.to_string_lossy().ends_with(".xml") => {
+						let is_info_xml = name.eq_ignore_ascii_case(OsStr::new("info.xml"));
+						if is_info_xml
+							|| (!name.eq_ignore_ascii_case(OsStr::new("songs.xml"))
+								&& !name.eq_ignore_ascii_case(OsStr::new("images.xml"))
+								&& !name.eq_ignore_ascii_case(OsStr::new("anims.xml")))
+						{
+							if !is_info_xml {
+								println!("Substituting {name:?} for info.xml"); // TODO: properly search zip
+							}
+							info = Some(quick_xml::de::from_reader(BufReader::new(entry))?);
+						}
 					}
 					_ => {}
 				}
@@ -69,18 +79,16 @@ impl Respack {
 		}
 
 		if info.is_none() {
-			Err(RespackError::MissingMetadata(
-				"Missing info.xml file in respack".to_string(),
-			))
-		} else {
-			let data = RespackData {
-				info: info.unwrap(),
-			};
-			Ok(Self {
-				path: path.as_ref().to_path_buf(),
-				data,
-			})
+			println!("Missing info.xml file in respack");
 		}
+
+		let data = RespackData {
+			info: info.unwrap_or_default(),
+		};
+		Ok(Self {
+			path: path.as_ref().to_path_buf(),
+			data,
+		})
 	}
 }
 
@@ -89,9 +97,9 @@ pub struct RespackData {
 	info: RespackInfo,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct RespackInfo {
-	name: String,
+	name: Option<String>,
 	author: Option<String>,
 	description: Option<String>,
 	link: Option<String>,
