@@ -56,51 +56,26 @@ struct RespackLoader {
 	pub progress: Receiver<f32>,
 }
 
-#[derive(Debug)]
-struct GlobalState {
-	screen: Screen,
-	loading_respacks: Vec<RespackLoader>,
-	respacks: Vec<Respack>,
-	resources_dir: PathBuf,
-}
-
-impl GlobalState {
-	pub fn new(ctx: &mut Context) -> Result<Self, GameError> {
-		ctx.gfx
-			.add_font("Pet Me 64", FontData::from_path(&ctx.fs, "/PetMe64.ttf")?);
-
-		let resources_dir = ctx.fs.resources_dir().to_path_buf();
-		let loading_respacks = vec![Self::spawn_data_loader(resources_dir.clone())]; // todo: load from config
-
-		Ok(Self {
-			screen: Screen::default(),
-			loading_respacks,
-			respacks: Vec::new(),
-			resources_dir,
-		})
-	}
-
-	fn spawn_data_loader(resources_dir: PathBuf) -> RespackLoader {
+impl RespackLoader {
+	pub fn new(path: impl AsRef<Path>) -> Self {
 		let (sender, recv) = channel();
-
-		let path = resources_dir.join("respacks").join("HuesMixA.zip"); // TODO: load from config
-		let path_cloned = path.clone();
+		let path = path.as_ref().to_path_buf();
+		let path_clone = path.clone();
 
 		let thread = thread::spawn(move || -> RespackResult<Respack> {
 			let mut progress = 0.0;
 
-			let respack = Respack::load_from_file(&path_cloned)?;
-			dbg!(&respack);
+			let respack = Respack::load_from_file(path_clone)?;
 
-			loop {
-				progress += 0.01;
-				sender.send(progress).unwrap();
-				thread::sleep(Duration::from_millis(10));
+			// loop {
+			// 	progress += 0.04;
+			// 	sender.send(progress).unwrap();
+			// 	thread::sleep(Duration::from_millis(10));
 
-				if progress >= 1.0 {
-					break;
-				}
-			}
+			// 	if progress >= 1.0 {
+			// 		break;
+			// 	}
+			// }
 
 			Ok(respack)
 		});
@@ -113,32 +88,60 @@ impl GlobalState {
 	}
 }
 
+#[derive(Debug)]
+struct GlobalState {
+	screen: Screen,
+	loading_respacks: Vec<RespackLoader>,
+	respacks: Vec<Respack>,
+}
+
+impl GlobalState {
+	pub fn new(ctx: &mut Context) -> Result<Self, GameError> {
+		ctx.gfx
+			.add_font("Pet Me 64", FontData::from_path(&ctx.fs, "/PetMe64.ttf")?);
+
+		let loading_respacks = ctx
+			.fs
+			.read_dir("/respacks")?
+			.filter(|p| p.is_file())
+			.map(RespackLoader::new)
+			.collect();
+
+		Ok(Self {
+			screen: Screen::default(),
+			loading_respacks,
+			respacks: Vec::new(),
+		})
+	}
+}
+
 impl EventHandler for GlobalState {
 	fn update(&mut self, _ctx: &mut Context) -> GameResult {
 		if let Screen::Loading { ref mut progress } = self.screen {
-			self.loading_respacks
-				.extract_if(|loader| loader.thread.is_finished())
-				.for_each(|loader| {
-					let join_result = loader.thread.join().unwrap();
-					let loader_path = loader.path;
+			let finished = self
+				.loading_respacks
+				.extract_if(|loader| loader.thread.is_finished());
 
-					match join_result {
-						Ok(respack) => {
-							println!("Loaded respack: {respack:?}");
-							self.respacks.push(respack);
-						}
-						Err(err) => {
-							println!("Error loading respack {loader_path:?}: {err:?}");
-							self.screen = Screen::Error {
-								message: format!("{err:?}"),
-							};
-						}
-						_ => (),
+			for loader in finished {
+				let join_result = loader.thread.join().unwrap();
+				let loader_path = loader.path;
+
+				match join_result {
+					Ok(respack) => {
+						println!("Loaded respack: {respack:?}");
+						self.respacks.push(respack);
 					}
-				});
+					Err(err) => {
+						println!("Error loading respack {loader_path:?}: {err:?}");
+						return Err(GameError::CustomError(format!("{err:?}")));
+					}
+					_ => (),
+				}
+			}
 
-			for loading in &self.loading_respacks {
-				let progress = loading.progress.try_recv().unwrap_or(0.0);
+			for loader in &self.loading_respacks {
+				let new_progress = loader.progress.try_recv();
+				*progress += new_progress.unwrap_or(0.0);
 			}
 		}
 
